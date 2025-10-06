@@ -1,0 +1,157 @@
+You are an expert-level software architect and Python developer. Your mission is to design and build a complete, runnable codebase for a Dynamic Interactive Information Pipeline.
+
+1. Core Vision & Functional Requirements
+
+The system you will build is an intelligent agent that users can command via Telegram. The core user journey is as follows:
+
+Task Creation: A user tells the bot, in natural language, what information they want to monitor (e.g., /newtask monitor the /r/python subreddit for news about web frameworks).
+
+Automated Monitoring: The system automatically creates a background task to continuously watch the specified source.
+
+Intelligent Filtering: When new content appears, the system uses the OpenRouter LLM API to decide if it matches the user's specific criteria.
+
+Notification: If the content is relevant, it's sent to the user via a Telegram message.
+
+Interactive Refinement: The user can provide feedback on the notifications (e.g., "this is irrelevant" or "show me more like this"). The system then uses this feedback to automatically refine and improve its filtering criteria for that specific task.
+
+Task Management: Users must also have simple commands to list, pause, and delete their monitoring tasks.
+
+2. Architectural Blueprint & Key Technologies
+
+To achieve this, you will implement an event-driven, microservice-style architecture. This ensures scalability and robustness.
+
+Core Technologies:
+
+Language: Python 3.10+
+
+Orchestration: Docker and Docker Compose
+
+Messaging: RabbitMQ for asynchronous communication between services.
+
+Database: PostgreSQL for persistent task storage. Use a standard ORM like SQLAlchemy.
+
+LLM Provider: OpenRouter API (OpenAI-compatible endpoint).
+
+Service Components:
+
+Master Bot: The user's main interface on Telegram.
+
+Producer: Manages and runs the data scrapers.
+
+Consumer: The core filtering engine that communicates with OpenRouter.
+
+Notifier: Delivers results to the user.
+
+Feedback Processor: The "learning" component that refines prompts.
+
+3. System Contracts (The Non-Negotiables)
+
+For the system to function correctly, all services must adhere to the following data contracts.
+
+3.1. Database Schema (tasks table)
+This is the single source of truth for all monitoring tasks.
+
+Column	Type	Description
+task_id	SERIAL PRIMARY KEY	Unique identifier for the task.
+user_id	BIGINT	The user's Telegram ID.
+telegram_chat_id	BIGINT	The chat to send notifications to.
+source_type	VARCHAR(50)	e.g., 'reddit', 'rss'.
+source_target	TEXT	e.g., 'r/python' or a feed URL.
+current_prompt	TEXT	The LLM prompt used for filtering. This will be updated by the feedback loop.
+status	VARCHAR(50)	'active' or 'paused'.
+
+Export to Sheets
+3.2. Message Queue Payloads (JSON format)
+
+raw_content_queue (from Producer to Consumer):
+
+JSON
+
+{
+  "task_id": 123,
+  "data": {
+    "title": "...", "url": "...", "content": "..."
+  }
+}
+filtered_content_queue (from Consumer to Notifier):
+
+JSON
+
+{
+  "telegram_chat_id": 987654321,
+  "formatted_message": "..."
+}
+feedback_queue (from Master Bot to Feedback Processor):
+
+JSON
+
+{
+  "task_id": 123,
+  "feedback_text": "...",
+  "current_prompt": "..."
+}
+4. Component Responsibilities
+
+Here is what each service needs to accomplish. Implement them using Python best practices.
+
+Master Bot:
+
+Act as the primary interface for the user on Telegram.
+
+Translate user commands (/newtask, /listtasks, etc.) into database operations (CREATE, READ, UPDATE).
+
+When a /newtask command is received, intelligently generate an initial current_prompt for the LLM based on the user's request.
+
+Capture user feedback (replies or button clicks) and publish it to the feedback_queue.
+
+Producer:
+
+Periodically check the database for all active tasks.
+
+For each task, run the appropriate scraper (e.g., for Reddit, RSS).
+
+To prevent duplicates, keep track of which items have already been processed for each task.
+
+Place any new, unprocessed items onto the raw_content_queue.
+
+Consumer (Filter):
+
+Listen for new content on the raw_content_queue.
+
+For each piece of content, retrieve the corresponding task's current_prompt from the database.
+
+Make a call to the OpenRouter API, sending both the prompt and the content, to get a "YES" or "NO" style decision.
+
+If the decision is "YES", format a user-friendly message and place it on the filtered_content_queue.
+
+Notifier:
+
+Listen for messages on the filtered_content_queue.
+
+Send the message to the correct user on Telegram.
+
+Ensure each notification includes interactive buttons (e.g., "Relevant", "Irrelevant") that allow the user to provide feedback. The button callbacks must contain enough information (like the task_id) for the Master Bot to process the feedback.
+
+Feedback Processor:
+
+Listen for events on the feedback_queue.
+
+For each feedback event, use the OpenRouter API in a "meta" capacity. Your goal is to generate a new, improved current_prompt based on the old prompt and the user's feedback.
+
+Update the task's current_prompt in the database with the newly generated version.
+
+5. Final Deliverables
+
+Please provide the following:
+
+The complete, runnable Python codebase organized into logical directories for each service.
+
+A docker-compose.yml file that defines and orchestrates the entire application stack (all Python services, plus PostgreSQL and RabbitMQ).
+
+A README.md file that clearly explains:
+
+The project's purpose.
+
+The necessary environment variables (e.g., TELEGRAM_BOT_TOKEN, DATABASE_URL, OPENROUTER_API_KEY).
+
+Simple, step-by-step instructions to get the entire system running with docker-compose up.
