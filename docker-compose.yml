@@ -25,14 +25,28 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
+  init_db:
+    build:
+      context: .
+      dockerfile: master_bot/Dockerfile
+    depends_on:
+      - postgres
+      - rabbitmq
+    env_file: .env
+    command: ["python", "/app/init_db.py"]
+    volumes:
+      - ./shared:/app/shared
+      - ./init_db.py:/app/init_db.py
+    restart: "no"
+
   master_bot:
     build:
       context: .
       dockerfile: master_bot/Dockerfile
     restart: always
     depends_on:
-      - postgres
-      - rabbitmq
+      init_db:
+        condition: service_completed_successfully
     env_file: .env
     volumes:
       - ./master_bot:/app/master_bot
@@ -43,8 +57,8 @@ services:
       dockerfile: producer/Dockerfile
     restart: always
     depends_on:
-      - postgres
-      - rabbitmq
+      init_db:
+        condition: service_completed_successfully
     env_file: .env
     volumes:
       - ./producer:/app/producer
@@ -55,8 +69,8 @@ services:
       dockerfile: consumer/Dockerfile
     restart: always
     depends_on:
-      - postgres
-      - rabbitmq
+      init_db:
+        condition: service_completed_successfully
     env_file: .env
     volumes:
       - ./consumer:/app/consumer
@@ -67,7 +81,8 @@ services:
       dockerfile: notifier/Dockerfile
     restart: always
     depends_on:
-      - rabbitmq
+      init_db:
+        condition: service_completed_successfully
     env_file: .env
     volumes:
       - ./notifier:/app/notifier
@@ -78,16 +93,11 @@ services:
       dockerfile: feedback_processor/Dockerfile
     restart: always
     depends_on:
-      - postgres
-      - rabbitmq
+      init_db:
+        condition: service_completed_successfully
     env_file: .env
     volumes:
       - ./feedback_processor:/app/feedback_processor
-
-volumes:
-  postgres_data:
-  rabbitmq_data:
-      - ./common:/app/common
 
 volumes:
   postgres_data:

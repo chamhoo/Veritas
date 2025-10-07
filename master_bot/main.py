@@ -243,13 +243,10 @@ class MasterBot:
     
     def generate_initial_prompt(self, source_type: str, source_target: str, user_request: str) -> str:
         """Generate an initial LLM prompt based on the user's request."""
-        return f"""
-        You are evaluating content from {source_type} source '{source_target}'.
-        Your task is to determine if the content is relevant to the user's request: "{user_request}".
-        
-        Respond with 'YES' if the content is relevant, or 'NO' if it is not relevant.
-        Include a brief explanation of your decision.
-        """
+        return f"""You are evaluating content from {source_type} source '{source_target}'.
+Determine if this content matches: "{user_request}".
+
+Answer with ONLY 'YES' if relevant or 'NO' if not relevant. No explanation needed."""
     
     def run(self):
         """Start the bot."""

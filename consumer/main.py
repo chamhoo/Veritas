@@ -1,8 +1,9 @@
 import os
 import logging
 import json
+import time
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from shared.database import Database
 from shared.models import Task
@@ -36,32 +37,57 @@ class OpenRouterClient:
         
         # Create the messages for the API
         messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": content_text}
+            {"role": "system", "content": "You are a content filter. Respond with ONLY 'YES' or 'NO' - nothing else."},
+            {"role": "user", "content": f"{prompt}\n\nContent to evaluate:\n{content_text}"}
         ]
         
-        # Make the API request
-        try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json={
-                    "model": "openai/gpt-3.5-turbo",
-                    "messages": messages
-                }
-            )
-            response.raise_for_status()
-            
-            # Parse the response
-            result = response.json()
-            answer_text = result["choices"][0]["message"]["content"].strip().upper()
-            
-            # Check if the answer starts with YES
-            return answer_text.startswith("YES")
-            
-        except Exception as e:
-            logger.error(f"Error calling OpenRouter API: {str(e)}")
-            return False
+        # Make the API request with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    json={
+                        "model": "openai/gpt-3.5-turbo",
+                        "messages": messages,
+                        "temperature": 0.3,
+                        "max_tokens": 10
+                    },
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                # Parse the response
+                result = response.json()
+                answer_text = result["choices"][0]["message"]["content"].strip().upper()
+                
+                # Check if the answer starts with YES
+                is_relevant = answer_text.startswith("YES")
+                logger.debug(f"LLM response: {answer_text}, relevant: {is_relevant}")
+                return is_relevant
+                
+            except requests.exceptions.Timeout:
+                logger.warning(f"API request timeout (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+            except requests.exceptions.RequestException as e:
+                logger.error(f"API request error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+            except (KeyError, IndexError, ValueError) as e:
+                logger.error(f"Error parsing API response: {str(e)}")
+                return False
+            except Exception as e:
+                logger.error(f"Unexpected error calling OpenRouter API: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+        
+        logger.error("Failed to get API response after all retries")
+        return False
 
 class Consumer:
     """
@@ -82,7 +108,7 @@ class Consumer:
         
         logger.info("Consumer service initialized")
     
-    def get_task_prompt(self, task_id: int) -> str:
+    def get_task_prompt(self, task_id: int) -> Optional[str]:
         """Get the current prompt for a task."""
         with self.db.session_scope() as session:
             task = Task.get_by_id(session, task_id)
@@ -90,7 +116,7 @@ class Consumer:
                 return task.current_prompt
             return None
     
-    def get_chat_id(self, task_id: int) -> int:
+    def get_chat_id(self, task_id: int) -> Optional[int]:
         """Get the telegram_chat_id for a task."""
         with self.db.session_scope() as session:
             task = Task.get_by_id(session, task_id)

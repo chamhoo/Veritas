@@ -39,27 +39,53 @@ class PromptImprover:
             {"role": "user", "content": meta_prompt}
         ]
         
-        # Make the API request
-        try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json={
-                    "model": "openai/gpt-3.5-turbo",
-                    "messages": messages
-                }
-            )
-            response.raise_for_status()
-            
-            # Parse the response
-            result = response.json()
-            improved_prompt = result["choices"][0]["message"]["content"].strip()
-            
-            return improved_prompt
-            
-        except Exception as e:
-            logger.error(f"Error calling OpenRouter API: {str(e)}")
-            return current_prompt  # Return the original prompt if there's an error
+        # Make the API request with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    json={
+                        "model": "openai/gpt-3.5-turbo",
+                        "messages": messages,
+                        "temperature": 0.7
+                    },
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                # Parse the response
+                result = response.json()
+                improved_prompt = result["choices"][0]["message"]["content"].strip()
+                
+                logger.info(f"Successfully generated improved prompt")
+                return improved_prompt
+                
+            except requests.exceptions.Timeout:
+                logger.warning(f"API request timeout (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+            except requests.exceptions.RequestException as e:
+                logger.error(f"API request error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+            except (KeyError, IndexError) as e:
+                logger.error(f"Error parsing API response: {str(e)}")
+                break
+            except Exception as e:
+                logger.error(f"Unexpected error calling OpenRouter API: {str(e)}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+        
+        logger.error("Failed to improve prompt after all retries, returning original")
+        return current_prompt  # Return the original prompt if there's an error
     
     def format_meta_prompt(self, current_prompt: str, feedback: str) -> str:
         """
