@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    container_name: veritas_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-veritas}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: veritas_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mail_gateway:
+    build:
+      context: .
+      dockerfile: mail_gateway/Dockerfile
+    container_name: veritas_mail_gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - IMAP_SERVER=${IMAP_SERVER}
+      - IMAP_USERNAME=${IMAP_USERNAME}
+      - IMAP_PASSWORD=${IMAP_PASSWORD}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-60}
+    volumes:
+      - ./shared:/app/shared
+
+  producer:
+    build:
+      context: .
+      dockerfile: producer/Dockerfile
+    container_name: veritas_producer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - PRODUCER_CHECK_INTERVAL=${PRODUCER_CHECK_INTERVAL:-300}
+    volumes:
+      - ./shared:/app/shared
+      - producer_data:/app/producer
+
+  consumer:
+    build:
+      context: .
+      dockerfile: consumer/Dockerfile
+    container_name: veritas_consumer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_URL=${OPENROUTER_URL:-https://openrouter.ai/api/v1/chat/completions}
+    volumes:
+      - ./shared:/app/shared
+
+  notifier:
+    build:
+      context: .
+      dockerfile: notifier/Dockerfile
+    container_name: veritas_notifier
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - SMTP_SERVER=${SMTP_SERVER}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - FROM_EMAIL=${FROM_EMAIL:-${SMTP_USERNAME}}
+    volumes:
+      - ./shared:/app/shared
+
+  feedback_processor:
+    build:
+      context: .
+      dockerfile: feedback_processor/Dockerfile
+    container_name: veritas_feedback_processor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_URL=${OPENROUTER_URL:-https://openrouter.ai/api/v1/chat/completions}
+    volumes:
+      - ./shared:/app/shared
+
+volumes:
+  postgres_data:
+  producer_data:

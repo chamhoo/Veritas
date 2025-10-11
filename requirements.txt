@@ -1,3 +1,0 @@
-# List of all Python libraries and dependencies required for the project.
-
-# Add your project dependencies here.
